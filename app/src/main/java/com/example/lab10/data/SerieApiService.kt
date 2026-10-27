@@ -1,11 +1,17 @@
 package com.example.lab10.data
 
 import retrofit2.Response
-import retrofit2.http.*
+import retrofit2.http.Body
+import retrofit2.http.DELETE
+import retrofit2.http.GET
+import retrofit2.http.Headers
+import retrofit2.http.POST
+import retrofit2.http.PUT
+import retrofit2.http.Path
 
 interface SerieApiService {
     @GET("serie")
-    suspend fun selectSeries(): ArrayList<SerieModel>
+    suspend fun selectSeries(): List<SerieModel>
 
     @GET("serie/{id}")
     suspend fun selectSerie(@Path("id") id: String): Response<SerieModel>

@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -22,8 +23,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -32,65 +33,56 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.example.lab10.data.SerieApiService
 import com.example.lab10.data.SerieModel
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun ContenidoSeriesListado(navController: NavHostController, servicio: SerieApiService) {
-    var listaSeries: SnapshotStateList<SerieModel> = remember { mutableStateListOf() }
+    val listaSeries = remember { mutableStateListOf<SerieModel>() }
+
     LaunchedEffect(Unit) {
-        val listado = servicio.selectSeries()
-        listado.forEach { listaSeries.add(it) }
+        withContext(Dispatchers.IO) {
+            try {
+                val listado = servicio.selectSeries()
+                withContext(Dispatchers.Main) {
+                    listaSeries.clear()
+                    listaSeries.addAll(listado)
+                }
+                Log.d("API-SUCCESS", "Series cargadas exitosamente: ${listado.size}")
+            } catch (e: Exception) {
+                if (e !is kotlinx.coroutines.CancellationException) {
+                    Log.e("API-ERROR", "Error real al cargar series: ${e.message}")
+                }
+            }
+        }
     }
-    LazyColumn {
+
+    LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         item {
             Row(
-                modifier = Modifier.fillParentMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "ID",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(0.1f)
-                )
-                Text(
-                    text = "SERIE",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(0.7f)
-                )
-                Text(
-                    text = "Accion",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(0.2f)
-                )
+                Text(text = "ID", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.15f))
+                Text(text = "SERIE", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.55f))
+                Text(text = "Acción", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.3f))
             }
         }
         items(listaSeries) { item ->
             Row(
-                modifier = Modifier.padding(start = 8.dp).fillParentMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "${item.id}", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.1f))
-                Text(text = item.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.6f))
-                IconButton(
-                    onClick = {
-                        navController.navigate("serieVer/${item.id}")
-                        Log.e("SERIE-VER", "ID = ${item.id}")
-                    },
-                    Modifier.weight(0.1f)
-                ) {
-                    Icon(imageVector = Icons.Outlined.Edit, contentDescription = "Ver", modifier = Modifier.align(Alignment.CenterVertically))
-                }
-                IconButton(
-                    onClick = {
-                        navController.navigate("serieDel/${item.id}")
-                        Log.e("SERIE-DEL", "ID = ${item.id}")
-                    },
-                    Modifier.weight(0.1f)
-                ) {
-                    Icon(imageVector = Icons.Outlined.Delete, contentDescription = "Eliminar", modifier = Modifier.align(Alignment.CenterVertically))
+                Text(text = "${item.id ?: ""}", fontSize = 16.sp, modifier = Modifier.weight(0.15f))
+                Text(text = item.name, fontSize = 16.sp, modifier = Modifier.weight(0.55f))
+                Row(modifier = Modifier.weight(0.3f)) {
+                    IconButton(onClick = { navController.navigate("serieVer/${item.id}") }) {
+                        Icon(imageVector = Icons.Outlined.Edit, contentDescription = "Editar")
+                    }
+                    IconButton(onClick = { navController.navigate("serieDel/${item.id}") }) {
+                        Icon(imageVector = Icons.Outlined.Delete, contentDescription = "Eliminar")
+                    }
                 }
             }
         }
@@ -104,16 +96,30 @@ fun ContenidoSerieEditar(navController: NavHostController, servicio: SerieApiSer
     var release_date by remember { mutableStateOf("") }
     var rating by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("") }
-    var grabar by remember { mutableStateOf(false) }
+
+    val scope = rememberCoroutineScope()
 
     if (id != 0) {
         LaunchedEffect(Unit) {
-            val objSerie = servicio.selectSerie(id.toString())
-            delay(100)
-            name = objSerie.body()?.name ?: ""
-            release_date = objSerie.body()?.release_date ?: ""
-            rating = objSerie.body()?.rating?.toString() ?: ""
-            category = objSerie.body()?.category ?: ""
+            withContext(Dispatchers.IO) {
+                try {
+                    val objSerie = servicio.selectSerie(id.toString())
+                    if (objSerie.isSuccessful) {
+                        objSerie.body()?.let {
+                            withContext(Dispatchers.Main) {
+                                name = it.name
+                                release_date = it.release_date ?: ""
+                                rating = (it.rating ?: 0).toString()
+                                category = it.category ?: ""
+                            }
+                        }
+                    } else {
+                        Log.e("API-ERROR", "Error al obtener serie: ${objSerie.errorBody()?.string()}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("API-ERROR", "Error al obtener serie: ${e.message}")
+                }
+            }
         }
     }
 
@@ -123,63 +129,88 @@ fun ContenidoSerieEditar(navController: NavHostController, servicio: SerieApiSer
             .padding(16.dp)
     ) {
         TextField(
-            value = id.toString(),
+            value = if (id == 0) "Nuevo" else id.toString(),
             onValueChange = { },
-            label = { Text("ID (solo lectura)") },
+            label = { Text("ID") },
             readOnly = true,
-            singleLine = true
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
         )
         TextField(
             value = name,
             onValueChange = { name = it },
-            label = { Text("Name: ") },
-            singleLine = true
+            label = { Text("Name") },
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
         )
         TextField(
             value = release_date,
             onValueChange = { release_date = it },
-            label = { Text("Release Date:") },
-            singleLine = true
+            label = { Text("Release Date (YYYY-MM-DD)") },
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
         )
         TextField(
             value = rating,
             onValueChange = { rating = it },
-            label = { Text("Rating:") },
-            singleLine = true
+            label = { Text("Rating") },
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
         )
         TextField(
             value = category,
             onValueChange = { category = it },
-            label = { Text("Category:") },
-            singleLine = true
+            label = { Text("Category") },
+            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
         )
+
         Button(
             onClick = {
-                grabar = true
-            }
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val ratingInt = rating.toIntOrNull() ?: 0
+                        val res = if (id == 0) {
+                            val nuevaSerie = SerieModel(
+                                id = null,
+                                name = name,
+                                release_date = release_date.ifBlank { null },
+                                rating = ratingInt,
+                                category = category.ifBlank { null }
+                            )
+                            servicio.insertSerie(nuevaSerie)
+                        } else {
+                            val serieEditada = SerieModel(
+                                id = id,
+                                name = name,
+                                release_date = release_date.ifBlank { null },
+                                rating = ratingInt,
+                                category = category.ifBlank { null }
+                            )
+                            servicio.updateSerie(id.toString(), serieEditada)
+                        }
+
+                        if (res.isSuccessful) {
+                            Log.d("API-SUCCESS", "Serie grabada exitosamente")
+                            withContext(Dispatchers.Main) {
+                                navController.popBackStack()
+                                navController.navigate("series")
+                            }
+                        } else {
+                            val errorBody = res.errorBody()?.string()
+                            Log.e("API-ERROR", "Error al grabar serie (${res.code()}): $errorBody")
+                        }
+                    } catch (e: Exception) {
+                        Log.e("API-ERROR", "Error en Grabar: ${e.message}", e)
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
         ) {
             Text("Grabar", fontSize = 16.sp)
         }
-    }
-
-    if (grabar) {
-        val ratingInt = rating.toIntOrNull() ?: 0
-        val objSerie = SerieModel(id, name, release_date, ratingInt, category)
-        LaunchedEffect(Unit) {
-            if (id == 0)
-                servicio.insertSerie(objSerie)
-            else
-                servicio.updateSerie(id.toString(), objSerie)
-            navController.navigate("series")
-        }
-        grabar = false
     }
 }
 
 @Composable
 fun ContenidoSerieEliminar(navController: NavHostController, servicio: SerieApiService, id: Int) {
     var showDialog by remember { mutableStateOf(true) }
-    var borrar by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     if (showDialog) {
         AlertDialog(
@@ -190,28 +221,36 @@ fun ContenidoSerieEliminar(navController: NavHostController, servicio: SerieApiS
                 Button(
                     onClick = {
                         showDialog = false
-                        borrar = true
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                val res = servicio.deleteSerie(id.toString())
+                                if (res.isSuccessful) {
+                                    withContext(Dispatchers.Main) {
+                                        navController.popBackStack()
+                                        navController.navigate("series")
+                                    }
+                                } else {
+                                    Log.e("API-ERROR", "Error al eliminar: ${res.errorBody()?.string()}")
+                                }
+                            } catch (e: Exception) {
+                                Log.e("API-ERROR", "Error al eliminar: ${e.message}")
+                            }
+                        }
                     }
                 ) {
                     Text("Aceptar")
                 }
             },
             dismissButton = {
-                Button(onClick = {
-                    showDialog = false
-                    navController.navigate("series")
-                }) {
+                Button(
+                    onClick = {
+                        showDialog = false
+                        navController.navigate("series")
+                    }
+                ) {
                     Text("Cancelar")
                 }
             }
         )
-    }
-
-    if (borrar) {
-        LaunchedEffect(Unit) {
-            servicio.deleteSerie(id.toString())
-            borrar = false
-            navController.navigate("series")
-        }
     }
 }
